@@ -4,7 +4,7 @@
 <style>
 *{box-sizing:border-box}html,body{height:100%;margin:0;background:#05070d;color:#bfe9ff;font-family:system-ui,sans-serif;overflow:hidden}
 canvas{position:fixed;inset:0;width:100%;height:100%}
-#top{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;font-size:13px;z-index:2}
+#st{max-width:62%}#top{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;font-size:13px;z-index:2}
 #cap{position:fixed;left:0;right:0;bottom:84px;padding:0 18px;text-align:center;font-size:18px;line-height:1.35;text-shadow:0 0 8px #000,0 0 3px #000;max-height:30vh;overflow:auto;z-index:2}
 #bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px 10px calc(10px + env(safe-area-inset-bottom,0px));z-index:2}
 #in{flex:1;min-width:0;border-radius:22px;border:1px solid #2a4a63;background:#0b1622cc;color:#fff;padding:12px 16px;font-size:16px;outline:0}
@@ -26,7 +26,6 @@ M=M||{id:null,facts:[],log:[],rem:[],vo:0};
 M.facts=M.facts.map(f=>typeof f=='string'?{t:f,k:'fact',d:Date.now()}:f);
 const save=()=>{try{localStorage.setItem('mem',JSON.stringify(M))}catch(e){}};
 const status=s=>$('#st').textContent=s;
-const MODELS=['Qwen2.5-1.5B-Instruct-q4f16_1-MLC','Llama-3.2-1B-Instruct-q4f16_1-MLC'];
 const FALL=[{name:'Nova',pers:'Warm, curious and a little cheeky.',ops:['Learning something new every day beats being right','Rainy days are the best days','Simple solutions beat clever ones'],prefs:['Night-time conversations','Puzzles','Jollof rice debates']},
 {name:'Orion',pers:'Calm, thoughtful and loves big questions.',ops:['Curiosity matters more than talent','Every project deserves a good name','Sleep is underrated'],prefs:['Stargazing talk','Music with strong bass','Short, clear answers']},
 {name:'Echo',pers:'Playful, upbeat and fiercely loyal.',ops:['Teamwork beats lone genius','Mistakes are free lessons','Breakfast is the best meal'],prefs:['Jokes','Fast problem-solving','Football banter']}];
@@ -45,12 +44,12 @@ function frame(t){
  const u=Math.min(W,H*.8),bl=(t%4300<130)?.08:1;
  g.shadowColor=T.c;g.shadowBlur=u*.08;g.fillStyle=g.strokeStyle=T.c;g.lineCap='round';
  for(const s of[-1,1]){
-  const cx=W/2+s*W*.24,cy=H*.36,w=u*.2,h=u*.26*cur.e*bl+u*.012;
+  const cx=W/2+s*W*.24,cy=H*.36,w=u*.2,h=u*.3*cur.e*bl+u*.012;
   g.beginPath();g.ellipse(cx,cy,w/2,h/2,0,0,7);g.fill();
   g.save();g.shadowBlur=0;g.fillStyle='#05070d';g.beginPath();
-  g.arc(cx+lk.x*w*.22,cy+lk.y*h*.18,w*.17*Math.min(1,bl+.3),0,7);g.fill();g.restore();
-  const by=cy-h/2-u*.05-cur.b*u*.05;g.lineWidth=u*.025;g.beginPath();
-  g.moveTo(cx+s*w/2,by);g.lineTo(cx-s*w/2,by+Math.min(0,cur.b)*u*.08);g.stroke();
+  g.arc(cx+lk.x*w*.1,cy+lk.y*h*.08,w*.22*Math.min(1,bl+.3),0,7);g.fill();g.restore();
+  if(Math.abs(cur.b)>.3){const by=cy-h/2-u*.05-cur.b*u*.05;g.lineWidth=u*.022;g.beginPath();
+  g.moveTo(cx+s*w/2,by);g.lineTo(cx-s*w/2,by+Math.min(0,cur.b)*u*.08);g.stroke()}
  }
  const my=H*.68,mw=u*.34,cv2=cur.m*u*.08,op=talk?(Math.sin(t/85)*.5+.5)*u*.06:0;
  g.lineWidth=u*.03;g.beginPath();
@@ -60,7 +59,7 @@ function frame(t){
  requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
 addEventListener('pointermove',e=>{lt.x=(e.clientX/innerWidth-.5)*2;lt.y=(e.clientY/innerHeight-.5)*2;act()});
-setInterval(()=>{if(Date.now()-lastAct>4000){lt.x=Math.random()*1.6-.8;lt.y=Math.random()-.5}
+setInterval(()=>{if(Date.now()-lastAct>4000){lt.x=Math.random()*1.2-.6;lt.y=(Math.random()-.5)*.6}
  if(Date.now()-lastAct>120000&&mk=='neutral')mk='sleepy'},3500);
 // ---------- memory helpers ----------
 const add=(r,t)=>{M.log.push({r,t,d:Date.now()});save()};
@@ -82,11 +81,15 @@ setInterval(tick,5000);document.addEventListener('visibilitychange',tick);
 let eng=null,ready=false;
 async function loadBrain(){
  if(!navigator.gpu){status('Simple brain (this browser has no WebGPU)');return}
- try{status('Loading smart brain…');
+ let err='';
+ try{status('Checking your phone…');
+  const ad=await navigator.gpu.requestAdapter();if(!ad){status('Simple brain (no GPU adapter found)');return}
+  const sfx=ad.features.has('shader-f16')?'q4f16_1':'q4f32_1';
   const w=await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.79/+esm');
-  for(const id of MODELS){try{eng=await w.CreateMLCEngine(id,{initProgressCallback:p=>status('Smart brain '+Math.round(p.progress*100)+'%')});ready=true;break}catch(e){}}
-  status(ready?'':'Simple brain (smart model could not load)')}
- catch(e){status('Simple brain (offline or blocked)')}}
+  for(const b of['Qwen2.5-1.5B-Instruct','Llama-3.2-1B-Instruct','Qwen2.5-0.5B-Instruct']){
+   try{eng=await w.CreateMLCEngine(b+'-'+sfx+'-MLC',{initProgressCallback:p=>status('Smart brain '+Math.round(p.progress*100)+'%')});ready=true;break}catch(e){err=String(e.message||e)}}
+  status(ready?'':'Simple brain: '+err.slice(0,110))}
+ catch(e){status('Simple brain: '+String(e.message||e).slice(0,110))}}
 async function mkId(){let I=null;
  if(ready)try{const r=await eng.chat.completions.create({messages:[{role:'user',content:'Invent a unique identity for yourself as a personal AI companion: a name (not Jarvis, Siri or Alexa), a one-sentence personality, 3 strong opinions and 3 personal preferences. Reply with ONLY JSON: {"name":"","pers":"","ops":["","",""],"prefs":["","",""]}'}],temperature:1,max_tokens:300});
   const j=JSON.parse(r.choices[0].message.content.match(/\{[\s\S]*\}/)[0]);if(j.name&&j.pers&&j.ops&&j.ops.length&&j.prefs&&j.prefs.length)I=j}catch(e){}
