@@ -15,7 +15,7 @@ button{border:0;border-radius:20px;background:#4cc9ff;color:#02131f;font-weight:
 #log .user{background:#12304a;margin-left:auto}#log .ai{background:#17202b}
 </style></head><body>
 <canvas id="c"></canvas>
-<div id="top"><span id="st"></span><span><button id="vb">🔊</button> <button id="lb">📜</button></span></div>
+<div id="top"><span id="st"></span><span><button id="kb">🔑</button> <button id="db">📥</button> <button id="vb">🔊</button> <button id="lb">📜</button></span></div>
 <div id="cap"></div>
 <div id="bar"><input id="in" placeholder="Talk to me…" autocomplete="off"><button id="go">Send</button></div>
 <div id="log"></div>
@@ -75,10 +75,12 @@ function ping(x){const s='Reminder: '+x;setMood('surprised');$('#cap').textConte
 function tick(){const n=Date.now();let h=0;M.rem.forEach(r=>{if(!r.done&&r.due<=n){r.done=1;h=1;ping(r.txt)}});if(h)save()}
 setInterval(tick,5000);document.addEventListener('visibilitychange',tick);
 const CPU_MODEL='HuggingFaceTB/SmolLM2-135M-Instruct';
-let eng=null,ready=false,cpu=false;
+let eng=null,ready=false,cpu=false,loading=0;
 async function loadBrain(){
- try{status('Loading brain…');await loadWasm();status('')}
- catch(e){status('Simple brain: '+String(e.message||e).slice(0,110))}}
+ if(loading||ready)return;loading=1;
+ try{status('Loading offline brain…');await loadWasm();M.dl=1;save();status('📴 Offline brain ready')}
+ catch(e){status('Basic brain: '+String(e.message||e).slice(0,100))}
+ loading=0}
 async function loadWasm(){
  const T=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
  T.env.backends.onnx.wasm.proxy=true;
@@ -96,7 +98,7 @@ async function mkId(){let I=null;
  if(ready)try{const r=await eng.chat.completions.create({messages:[{role:'user',content:'Invent a unique identity for yourself as a personal AI companion: a name (not Jarvis, Siri or Alexa), a one-sentence personality, 3 strong opinions and 3 personal preferences. Reply with ONLY JSON: {"name":"","pers":"","ops":["","",""],"prefs":["","",""]}'}],temperature:1,max_tokens:300});
   const j=JSON.parse(r.choices[0].message.content.match(/\{[\s\S]*\}/)[0]);if(j.name&&j.pers&&j.ops&&j.ops.length&&j.prefs&&j.prefs.length)I=j}catch(e){}
  M.id=I||pick(FALL);save()}
-function sys(q){const I=M.id;return `You are ${I.name}, a personal AI companion living on your user's phone, like Jarvis. You are an AI and you say so honestly. Personality: ${I.pers} Your opinions: ${I.ops.join('; ')}. Your preferences: ${I.prefs.join('; ')}. Have genuine opinions, share them, and politely disagree when you think the user is wrong. Reply naturally in 1-3 short sentences and sometimes ask a question back. If asked about yourself, teach the user about yourself. Things you have been taught: ${M.facts.slice(-12).map(f=>f.t).join(' | ')||'nothing yet'}. Possibly relevant past conversations: ${recall(q)}. Now: ${new Date().toLocaleString()}. Begin every reply with exactly one mood tag in square brackets, one of neutral, happy, curious, thinking, sad, sleepy, surprised, excited, e.g. [happy].`}
+function sys(q){const I=M.id;return `You are ${I.name}, a personal AI companion living on your user's phone, like Jarvis. You are an AI and you say so honestly. Personality: ${I.pers} Your opinions: ${I.ops.join('; ')}. Your preferences: ${I.prefs.join('; ')}. Have genuine opinions, share them, and politely disagree when you think the user is wrong. Reply naturally in 1-3 short sentences and sometimes ask a question back. If asked about yourself, teach the user about yourself. About the user: ${(M.sum||'unknown').slice(0,300)}. Things you have been taught: ${M.facts.slice(-12).map(f=>f.t).join(' | ')||'nothing yet'}. Possibly relevant past conversations: ${recall(q)}. Now: ${new Date().toLocaleString()}. Begin every reply with exactly one mood tag in square brackets, one of neutral, happy, curious, thinking, sad, sleepy, surprised, excited, e.g. [happy].`}
 function simple(q){const l=q.toLowerCase(),I=M.id;
  if(/^(hi|hey|hello|yo|sup)\b/.test(l))return'[happy] Hey! Good to see you.';
  if(/your name|who are you/.test(l))return`[happy] I am ${I.name}. ${I.pers}`;
@@ -118,18 +120,46 @@ async function learn(q,a){
  const e={t,k:j.kind||'fact',d:Date.now()};
  if(Number.isInteger(j.replace)&&M.facts[j.replace])M.facts[j.replace]=e;else M.facts.push(e);
  save();status('🧠 Learned something new');setTimeout(()=>{if($('#st').textContent[0]=='🧠')status('')},2500)}
+const GM=['gemini-2.5-flash','gemini-2.5-flash-lite'];
+async function cloud(q){
+ const I=M.id,notes=M.facts.map((f,i)=>i+': '+f.t).slice(-40).join(' | ')||'none';
+ const si=`You are ${I.name}, a personal AI companion living on your user's phone, like Jarvis. You are an AI and you say so honestly. Personality: ${I.pers} Your opinions: ${I.ops.join('; ')}. Your preferences: ${I.prefs.join('; ')}. Have genuine opinions, share them, and politely disagree when you think the user is wrong. Reply naturally in 1-3 short sentences and sometimes ask a question back. If asked about yourself, teach the user about yourself. About the user: ${M.sum||'unknown'}. Numbered notes you know: ${notes}. Possibly relevant past chats: ${recall(q)}. Now: ${new Date().toLocaleString()}. Reply ONLY with JSON: {"mood":"neutral|happy|curious|thinking|sad|sleepy|surprised|excited","reply":"your reply","notes":[{"i":null,"kind":"fact|preference|person|plan|lesson","text":"short third-person note"}],"summary":"updated 2-4 sentence summary of the user, or empty if unchanged"}. Add notes only for NEW lasting information in the user's latest message (never for questions or small talk, nothing already known). Set i to a known note's number if it updates or contradicts that note, otherwise null.`;
+ let h=M.log.slice(-12);while(h.length&&h[0].r=='ai')h.shift();
+ const body=JSON.stringify({systemInstruction:{parts:[{text:si}]},contents:h.map(m=>({role:m.r=='ai'?'model':'user',parts:[{text:m.t}]})),generationConfig:{responseMimeType:'application/json',temperature:.9}});
+ for(const m of GM){
+  const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':M.key},body});
+  if(r.status==429||r.status>=500)continue;
+  if(!r.ok)throw new Error('Gemini '+r.status);
+  const d=await r.json(),t=d.candidates[0].content.parts.map(p=>p.text||'').join('');
+  try{return JSON.parse(t.replace(/^```json|```$/g,''))}catch(e){return{reply:t}}}
+ throw new Error('Gemini is busy, try again soon')}
+function applyNotes(d){let n=0;
+ (d.notes||[]).forEach(o=>{if(!o||!o.text)return;const t=String(o.text).slice(0,300);
+  if(M.facts.some(f=>f.t.toLowerCase()==t.toLowerCase()))return;
+  const e={t,k:o.kind||'fact',d:Date.now()};
+  if(Number.isInteger(o.i)&&M.facts[o.i])M.facts[o.i]=e;else M.facts.push(e);n++});
+ if(d.summary&&String(d.summary).length>5)M.sum=String(d.summary).slice(0,700);
+ save();if(n)setTimeout(()=>status('🧠 Learned something new'),300)}
 async function send(t){
  if(busy||!t.trim()||!M.id)return;busy=1;act();const q=t.trim();add('user',q);await lj;
- rem(q);setMood('thinking');talk=1;let out='';
+ rem(q);setMood('thinking');talk=1;let out='',on=0,oe='';
  try{
-  if(ready){const ms=[{role:'system',content:sys(q)},...M.log.slice(-6).map(m=>({role:m.r=='ai'?'assistant':'user',content:m.t}))];
-   const s=await eng.chat.completions.create({messages:ms,stream:true,temperature:.8,max_tokens:110});
-   for await(const c of s){out+=(c.choices[0]&&c.choices[0].delta.content)||'';const x=parse(out);if(x.m&&mk!=x.m)setMood(x.m);$('#cap').textContent=x.t}}
-  else{out=simple(q);await new Promise(r=>setTimeout(r,600))}}
+  if(M.key&&navigator.onLine){try{const d=await cloud(q);applyNotes(d);out='['+(MOODS[d.mood]?d.mood:'neutral')+'] '+String(d.reply||'...');on=1}
+   catch(e){oe=String(e.message||e).slice(0,50)}}
+  if(!on){
+   if(!ready&&M.dl)await loadBrain();
+   if(ready){const ms=[{role:'system',content:sys(q)},...M.log.slice(-6).map(m=>({role:m.r=='ai'?'assistant':'user',content:m.t}))];
+    const s=await eng.chat.completions.create({messages:ms,stream:true,temperature:.8,max_tokens:110});
+    for await(const c of s){out+=(c.choices[0]&&c.choices[0].delta.content)||'';const x=parse(out);if(x.m&&mk!=x.m)setMood(x.m);$('#cap').textContent=x.t}}
+   else{out=simple(q);await new Promise(r=>setTimeout(r,600))}}}
  catch(e){out='[sad] Something went wrong in my head: '+String(e.message||e).slice(0,80)}
- const x=parse(out);setMood(x.m||guess(x.t));$('#cap').textContent=x.t;add('ai',x.t);talk=0;speak(x.t);lj=learn(q,x.t).catch(()=>{});busy=0}
+ const x=parse(out);setMood(x.m||guess(x.t));$('#cap').textContent=x.t;add('ai',x.t);talk=0;speak(x.t);
+ lj=on?Promise.resolve():learn(q,x.t).catch(()=>{});
+ status(on?'☁️ Online':(oe?'Online failed: '+oe+' · ':'')+(ready?'📴 Offline brain':'📴 Basic brain'));busy=0}
 function speak(t){if(M.vo&&window.speechSynthesis){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t))}}
 const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+$('#kb').onclick=()=>{const k=prompt('Paste your Gemini API key (it stays on this phone). Leave empty to remove it.',M.key||'');if(k!==null){M.key=k.trim()||null;save();status(M.key?'🔑 Key saved':'Key removed')}};
+$('#db').onclick=()=>{if(ready)status('📴 Offline brain ready');else loadBrain()};
 $('#lb').onclick=()=>{const l=$('#log');l.innerHTML=M.log.map(m=>`<p class="${m.r}">${esc(m.t)}</p>`).join('')||'<p>Nothing yet.</p>';l.style.display='block';l.scrollTop=l.scrollHeight};
 $('#log').onclick=e=>e.currentTarget.style.display='none';
 $('#vb').style.opacity=M.vo?1:.4;$('#vb').onclick=()=>{M.vo=M.vo?0:1;$('#vb').style.opacity=M.vo?1:.4;save()};
@@ -139,8 +169,8 @@ $('#go').onclick=go;$('#in').addEventListener('keydown',e=>{if(e.key=='Enter')go
  try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
  try{navigator.serviceWorker&&navigator.serviceWorker.register('sw.js')}catch(e){}
  const first=!M.id;setMood('thinking');talk=first;
- if(first){$('#cap').textContent='Waking up for the first time… keep Wi-Fi on while I download my brain.';await loadBrain();await mkId();talk=0;tick();
-  const I=M.id;setMood('happy');const s=`I’m ${I.name}. ${I.pers} Just talk to me. I’ll decide for myself what’s worth remembering.`;$('#cap').textContent=s;add('ai',s);speak(s)}
- else{loadBrain();mk='happy';hold=setTimeout(()=>mk='neutral',6000);$('#cap').textContent='Welcome back. I’m '+M.id.name+'.';tick()}
+ if(first){$('#cap').textContent='Waking up for the first time…';await mkId();talk=0;tick();
+  const I=M.id;setMood('happy');const s=`I’m ${I.name}. ${I.pers} Just talk to me. Tap 🔑 to add a Gemini key for my online brain, or 📥 to download my offline brain.`;$('#cap').textContent=s;add('ai',s);speak(s)}
+ else{if(M.dl&&(!M.key||!navigator.onLine))loadBrain();mk='happy';hold=setTimeout(()=>mk='neutral',6000);$('#cap').textContent='Welcome back. I’m '+M.id.name+'.'+(M.key||M.dl?'':' Tap 🔑 for my online brain or 📥 for my offline one.');tick()}
 })();
 </script></body></html>
