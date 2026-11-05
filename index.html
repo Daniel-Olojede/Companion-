@@ -29,7 +29,6 @@ const status=s=>$('#st').textContent=s;
 const FALL=[{name:'Nova',pers:'Warm, curious and a little cheeky.',ops:['Learning something new every day beats being right','Rainy days are the best days','Simple solutions beat clever ones'],prefs:['Night-time conversations','Puzzles','Jollof rice debates']},
 {name:'Orion',pers:'Calm, thoughtful and loves big questions.',ops:['Curiosity matters more than talent','Every project deserves a good name','Sleep is underrated'],prefs:['Stargazing talk','Music with strong bass','Short, clear answers']},
 {name:'Echo',pers:'Playful, upbeat and fiercely loyal.',ops:['Teamwork beats lone genius','Mistakes are free lessons','Breakfast is the best meal'],prefs:['Jokes','Fast problem-solving','Football banter']}];
-// ---------- face ----------
 const MOODS={neutral:{e:1,m:.15,b:0,c:'#4cc9ff'},happy:{e:.8,m:1,b:.1,c:'#5dffb0'},curious:{e:1.1,m:0,b:.6,c:'#ffd24c'},thinking:{e:.55,m:-.1,b:.2,c:'#b79cff'},sad:{e:.75,m:-.9,b:-.8,c:'#6d8cff'},sleepy:{e:.15,m:0,b:0,c:'#6b7a99'},surprised:{e:1.4,m:0,b:.9,c:'#ff9ecb',o:1},excited:{e:1.2,m:1,b:.3,c:'#ff7a4c'}};
 const cv=$('#c'),g=cv.getContext('2d');let W,H;
 function rs(){const d=devicePixelRatio||1;W=cv.width=innerWidth*d;H=cv.height=innerHeight*d}addEventListener('resize',rs);rs();
@@ -61,7 +60,6 @@ requestAnimationFrame(frame);
 addEventListener('pointermove',e=>{lt.x=(e.clientX/innerWidth-.5)*2;lt.y=(e.clientY/innerHeight-.5)*2;act()});
 setInterval(()=>{if(Date.now()-lastAct>4000){lt.x=Math.random()*1.2-.6;lt.y=(Math.random()-.5)*.6}
  if(Date.now()-lastAct>120000&&mk=='neutral')mk='sleepy'},3500);
-// ---------- memory helpers ----------
 const add=(r,t)=>{M.log.push({r,t,d:Date.now()});save()};
 const words=s=>s.toLowerCase().match(/\w{4,}/g)||[];
 function recall(q){const w=new Set(words(q));if(!w.size)return'none';
@@ -69,7 +67,6 @@ function recall(q){const w=new Set(words(q));if(!w.size)return'none';
  .map(x=>new Date(x[1].d).toLocaleDateString()+' '+x[1].r+': '+x[1].t.slice(0,160)).join(' | ')||'none'}
 function parse(s){const r=s.match(/^\s*\[(\w+)\]/),k=r&&r[1].toLowerCase();return{m:MOODS[k]?k:null,t:s.replace(/^\s*\[\w*\]?\s*/,'')}}
 const guess=t=>/sorry|sad|unfortunately/i.test(t)?'sad':/!/.test(t)?'happy':/\?\s*$/.test(t)?'curious':'neutral';
-// ---------- reminders (run while the app is open) ----------
 function rem(t){const m=t.match(/remind me in (\d+)\s*(sec|second|min|minute|hour|hr)s?\s*(?:to|about)?\s*(.*)/i);if(!m)return;
  const u=m[2][0].toLowerCase();M.rem.push({due:Date.now()+ +m[1]*(u=='s'?1e3:u=='m'?6e4:36e5),txt:m[3]||'your reminder'});save();
  try{Notification.permission=='default'&&Notification.requestPermission()}catch(e){}}
@@ -77,24 +74,29 @@ function ping(x){const s='Reminder: '+x;setMood('surprised');$('#cap').textConte
  try{Notification.permission=='granted'&&navigator.serviceWorker.ready.then(r=>r.showNotification(M.id.name,{body:s}))}catch(e){}}
 function tick(){const n=Date.now();let h=0;M.rem.forEach(r=>{if(!r.done&&r.due<=n){r.done=1;h=1;ping(r.txt)}});if(h)save()}
 setInterval(tick,5000);document.addEventListener('visibilitychange',tick);
-// ---------- brain ----------
-let eng=null,ready=false;
+const CPU_MODEL='onnx-community/Qwen2.5-0.5B-Instruct';
+let eng=null,ready=false,cpu=false;
 async function loadBrain(){
- if(!navigator.gpu){status('Simple brain (this browser has no WebGPU)');return}
- let err='';
- try{status('Checking your phone…');
-  const ad=await navigator.gpu.requestAdapter();if(!ad){status('Simple brain (no GPU adapter found)');return}
-  const sfx=ad.features.has('shader-f16')?'q4f16_1':'q4f32_1';
-  const w=await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.79/+esm');
-  for(const b of['Qwen2.5-1.5B-Instruct','Llama-3.2-1B-Instruct','Qwen2.5-0.5B-Instruct']){
-   try{eng=await w.CreateMLCEngine(b+'-'+sfx+'-MLC',{initProgressCallback:p=>status('Smart brain '+Math.round(p.progress*100)+'%')});ready=true;break}catch(e){err=String(e.message||e)}}
-  status(ready?'':'Simple brain: '+err.slice(0,110))}
+ try{status('Loading brain…');await loadWasm();status('')}
  catch(e){status('Simple brain: '+String(e.message||e).slice(0,110))}}
+async function loadWasm(){
+ const T=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+ T.env.backends.onnx.wasm.proxy=true;
+ const gen=await T.pipeline('text-generation',CPU_MODEL,{dtype:'q4',device:'wasm',progress_callback:p=>{if(p.status=='progress')status('Brain download (keep Wi-Fi on) '+Math.round(p.progress)+'%')}});
+ eng={chat:{completions:{create:async o=>{
+  const opts={max_new_tokens:o.max_tokens||200,do_sample:o.temperature>0,temperature:o.temperature||1};
+  if(!o.stream){const x=await gen(o.messages,opts);return{choices:[{message:{content:x[0].generated_text.at(-1).content}}]}}
+  const q=[];let done=false,wake=null,er=null;
+  opts.streamer=new T.TextStreamer(gen.tokenizer,{skip_prompt:true,callback_function:t=>{q.push(t);if(wake)wake()}});
+  gen(o.messages,opts).then(()=>{done=true;if(wake)wake()},e=>{er=e;done=true;if(wake)wake()});
+  return(async function*(){while(true){if(q.length){yield{choices:[{delta:{content:q.shift()}}]};continue}
+   if(done)break;await new Promise(f=>wake=f)}if(er)throw er})()}}}};
+ cpu=true;ready=true}
 async function mkId(){let I=null;
  if(ready)try{const r=await eng.chat.completions.create({messages:[{role:'user',content:'Invent a unique identity for yourself as a personal AI companion: a name (not Jarvis, Siri or Alexa), a one-sentence personality, 3 strong opinions and 3 personal preferences. Reply with ONLY JSON: {"name":"","pers":"","ops":["","",""],"prefs":["","",""]}'}],temperature:1,max_tokens:300});
   const j=JSON.parse(r.choices[0].message.content.match(/\{[\s\S]*\}/)[0]);if(j.name&&j.pers&&j.ops&&j.ops.length&&j.prefs&&j.prefs.length)I=j}catch(e){}
  M.id=I||pick(FALL);save()}
-function sys(q){const I=M.id;return `You are ${I.name}, a personal AI companion living on your user's phone, like Jarvis. You are an AI and you say so honestly. Personality: ${I.pers} Your opinions: ${I.ops.join('; ')}. Your preferences: ${I.prefs.join('; ')}. Have genuine opinions, share them, and politely disagree when you think the user is wrong. Reply naturally in 1-3 short sentences and sometimes ask a question back. If asked about yourself, teach the user about yourself. Things you have been taught: ${M.facts.slice(-40).map(f=>f.t).join(' | ')||'nothing yet'}. Possibly relevant past conversations: ${recall(q)}. Now: ${new Date().toLocaleString()}. Begin every reply with exactly one mood tag in square brackets, one of neutral, happy, curious, thinking, sad, sleepy, surprised, excited, e.g. [happy].`}
+function sys(q){const I=M.id;return `You are ${I.name}, a personal AI companion living on your user's phone, like Jarvis. You are an AI and you say so honestly. Personality: ${I.pers} Your opinions: ${I.ops.join('; ')}. Your preferences: ${I.prefs.join('; ')}. Have genuine opinions, share them, and politely disagree when you think the user is wrong. Reply naturally in 1-3 short sentences and sometimes ask a question back. If asked about yourself, teach the user about yourself. Things you have been taught: ${M.facts.slice(-12).map(f=>f.t).join(' | ')||'nothing yet'}. Possibly relevant past conversations: ${recall(q)}. Now: ${new Date().toLocaleString()}. Begin every reply with exactly one mood tag in square brackets, one of neutral, happy, curious, thinking, sad, sleepy, surprised, excited, e.g. [happy].`}
 function simple(q){const l=q.toLowerCase(),I=M.id;
  if(/^(hi|hey|hello|yo|sup)\b/.test(l))return'[happy] Hey! Good to see you.';
  if(/your name|who are you/.test(l))return`[happy] I am ${I.name}. ${I.pers}`;
@@ -106,7 +108,7 @@ let busy=0,lj=Promise.resolve();
 const heur=q=>/\?\s*$/.test(q)||q.length<10?null:/^(i am|i'm|i like|i love|i hate|i prefer|i live|i work|i study|i want|i have|i need|my |remember|note that|learn that)|\b(is|are|means)\b/i.test(q)?{store:true,kind:'fact',text:'The user said: '+q.slice(0,250)}:null;
 async function learn(q,a){
  let j=null;
- if(ready){try{const known=M.facts.map((f,i)=>i+': '+f.t).slice(-60).join('\n')||'(none)';
+ if(ready&&!cpu){try{const known=M.facts.map((f,i)=>i+': '+f.t).slice(-60).join('\n')||'(none)';
   const r=await eng.chat.completions.create({messages:[{role:'system',content:'You decide what a personal AI should remember. Given the user message, decide if it contains NEW durable information about the user, their life, people, plans, preferences, or something they are teaching you. Ignore small talk, questions, commands and anything already known. If it updates or contradicts a known item, set replace to that item number. Reply ONLY JSON: {"store":true|false,"kind":"fact|preference|person|plan|lesson","text":"short third-person note such as The user likes jollof rice","replace":null|number}\nKnown:\n'+known},{role:'user',content:q}],temperature:0,max_tokens:120});
   j=JSON.parse(r.choices[0].message.content.match(/\{[\s\S]*\}/)[0])}catch(e){}}
  else j=heur(q);
@@ -120,14 +122,13 @@ async function send(t){
  if(busy||!t.trim()||!M.id)return;busy=1;act();const q=t.trim();add('user',q);await lj;
  rem(q);setMood('thinking');talk=1;let out='';
  try{
-  if(ready){const ms=[{role:'system',content:sys(q)},...M.log.slice(-12).map(m=>({role:m.r=='ai'?'assistant':'user',content:m.t}))];
-   const s=await eng.chat.completions.create({messages:ms,stream:true,temperature:.8,max_tokens:220});
+  if(ready){const ms=[{role:'system',content:sys(q)},...M.log.slice(-6).map(m=>({role:m.r=='ai'?'assistant':'user',content:m.t}))];
+   const s=await eng.chat.completions.create({messages:ms,stream:true,temperature:.8,max_tokens:110});
    for await(const c of s){out+=(c.choices[0]&&c.choices[0].delta.content)||'';const x=parse(out);if(x.m&&mk!=x.m)setMood(x.m);$('#cap').textContent=x.t}}
   else{out=simple(q);await new Promise(r=>setTimeout(r,600))}}
  catch(e){out='[sad] Something went wrong in my head: '+String(e.message||e).slice(0,80)}
  const x=parse(out);setMood(x.m||guess(x.t));$('#cap').textContent=x.t;add('ai',x.t);talk=0;speak(x.t);lj=learn(q,x.t).catch(()=>{});busy=0}
 function speak(t){if(M.vo&&window.speechSynthesis){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t))}}
-// ---------- UI ----------
 const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 $('#lb').onclick=()=>{const l=$('#log');l.innerHTML=M.log.map(m=>`<p class="${m.r}">${esc(m.t)}</p>`).join('')||'<p>Nothing yet.</p>';l.style.display='block';l.scrollTop=l.scrollHeight};
 $('#log').onclick=e=>e.currentTarget.style.display='none';
