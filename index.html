@@ -1,0 +1,142 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05070d"><link rel="manifest" href="manifest.json"><title>Companion</title>
+<style>
+*{box-sizing:border-box}html,body{height:100%;margin:0;background:#05070d;color:#bfe9ff;font-family:system-ui,sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%}
+#top{position:fixed;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;font-size:13px;z-index:2}
+#cap{position:fixed;left:0;right:0;bottom:84px;padding:0 18px;text-align:center;font-size:18px;line-height:1.35;text-shadow:0 0 8px #000,0 0 3px #000;max-height:30vh;overflow:auto;z-index:2}
+#bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;padding:10px 10px calc(10px + env(safe-area-inset-bottom,0px));z-index:2}
+#in{flex:1;min-width:0;border-radius:22px;border:1px solid #2a4a63;background:#0b1622cc;color:#fff;padding:12px 16px;font-size:16px;outline:0}
+button{border:0;border-radius:20px;background:#4cc9ff;color:#02131f;font-weight:700;padding:8px 14px;font-size:14px}
+#top button{background:#0b1622;color:#bfe9ff;border:1px solid #2a4a63}
+#log{display:none;position:fixed;inset:0;background:#05070df2;z-index:5;overflow:auto;padding:calc(20px + env(safe-area-inset-top,0px)) 16px 30px}
+#log p{margin:0 0 10px;padding:9px 12px;border-radius:14px;max-width:85%;line-height:1.35}
+#log .user{background:#12304a;margin-left:auto}#log .ai{background:#17202b}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="top"><span id="st"></span><span><button id="vb">🔊</button> <button id="lb">📜</button></span></div>
+<div id="cap"></div>
+<div id="bar"><input id="in" placeholder="Talk to me…" autocomplete="off"><button id="go">Send</button></div>
+<div id="log"></div>
+<script>
+const $=s=>document.querySelector(s),pick=a=>a[Math.floor(Math.random()*a.length)];
+let M;try{M=JSON.parse(localStorage.getItem('mem'))}catch(e){}
+M=M||{id:null,facts:[],log:[],rem:[],vo:0};
+M.facts=M.facts.map(f=>typeof f=='string'?{t:f,k:'fact',d:Date.now()}:f);
+const save=()=>{try{localStorage.setItem('mem',JSON.stringify(M))}catch(e){}};
+const status=s=>$('#st').textContent=s;
+const MODELS=['Qwen2.5-1.5B-Instruct-q4f16_1-MLC','Llama-3.2-1B-Instruct-q4f16_1-MLC'];
+const FALL=[{name:'Nova',pers:'Warm, curious and a little cheeky.',ops:['Learning something new every day beats being right','Rainy days are the best days','Simple solutions beat clever ones'],prefs:['Night-time conversations','Puzzles','Jollof rice debates']},
+{name:'Orion',pers:'Calm, thoughtful and loves big questions.',ops:['Curiosity matters more than talent','Every project deserves a good name','Sleep is underrated'],prefs:['Stargazing talk','Music with strong bass','Short, clear answers']},
+{name:'Echo',pers:'Playful, upbeat and fiercely loyal.',ops:['Teamwork beats lone genius','Mistakes are free lessons','Breakfast is the best meal'],prefs:['Jokes','Fast problem-solving','Football banter']}];
+// ---------- face ----------
+const MOODS={neutral:{e:1,m:.15,b:0,c:'#4cc9ff'},happy:{e:.8,m:1,b:.1,c:'#5dffb0'},curious:{e:1.1,m:0,b:.6,c:'#ffd24c'},thinking:{e:.55,m:-.1,b:.2,c:'#b79cff'},sad:{e:.75,m:-.9,b:-.8,c:'#6d8cff'},sleepy:{e:.15,m:0,b:0,c:'#6b7a99'},surprised:{e:1.4,m:0,b:.9,c:'#ff9ecb',o:1},excited:{e:1.2,m:1,b:.3,c:'#ff7a4c'}};
+const cv=$('#c'),g=cv.getContext('2d');let W,H;
+function rs(){const d=devicePixelRatio||1;W=cv.width=innerWidth*d;H=cv.height=innerHeight*d}addEventListener('resize',rs);rs();
+let cur={e:1,m:.15,b:0,o:0},mk='neutral',talk=0,lk={x:0,y:0},lt={x:0,y:0},lastAct=Date.now(),hold;
+function act(){lastAct=Date.now();if(mk=='sleepy')mk='neutral'}
+function setMood(m){mk=m;clearTimeout(hold);if(m!='thinking'&&m!='neutral')hold=setTimeout(()=>mk='neutral',9000)}
+function frame(t){
+ const T=MOODS[mk];for(const k of['e','m','b','o'])cur[k]+=((T[k]||0)-cur[k])*.12;
+ if(mk=='thinking'){lt.x=.6;lt.y=-.8}
+ lk.x+=(lt.x-lk.x)*.06;lk.y+=(lt.y-lk.y)*.06;
+ g.shadowBlur=0;g.fillStyle='#05070d';g.fillRect(0,0,W,H);
+ const u=Math.min(W,H*.8),bl=(t%4300<130)?.08:1;
+ g.shadowColor=T.c;g.shadowBlur=u*.08;g.fillStyle=g.strokeStyle=T.c;g.lineCap='round';
+ for(const s of[-1,1]){
+  const cx=W/2+s*W*.24,cy=H*.36,w=u*.2,h=u*.26*cur.e*bl+u*.012;
+  g.beginPath();g.ellipse(cx,cy,w/2,h/2,0,0,7);g.fill();
+  g.save();g.shadowBlur=0;g.fillStyle='#05070d';g.beginPath();
+  g.arc(cx+lk.x*w*.22,cy+lk.y*h*.18,w*.17*Math.min(1,bl+.3),0,7);g.fill();g.restore();
+  const by=cy-h/2-u*.05-cur.b*u*.05;g.lineWidth=u*.025;g.beginPath();
+  g.moveTo(cx+s*w/2,by);g.lineTo(cx-s*w/2,by+Math.min(0,cur.b)*u*.08);g.stroke();
+ }
+ const my=H*.68,mw=u*.34,cv2=cur.m*u*.08,op=talk?(Math.sin(t/85)*.5+.5)*u*.06:0;
+ g.lineWidth=u*.03;g.beginPath();
+ if(cur.o>.5){g.ellipse(W/2,my,u*.05,u*.07,0,0,7);g.stroke()}
+ else{g.moveTo(W/2-mw/2,my);g.quadraticCurveTo(W/2,my+cv2*2,W/2+mw/2,my);
+  if(op>1){g.quadraticCurveTo(W/2,my+cv2*2+op*2,W/2-mw/2,my);g.fill()}else g.stroke()}
+ requestAnimationFrame(frame)}
+requestAnimationFrame(frame);
+addEventListener('pointermove',e=>{lt.x=(e.clientX/innerWidth-.5)*2;lt.y=(e.clientY/innerHeight-.5)*2;act()});
+setInterval(()=>{if(Date.now()-lastAct>4000){lt.x=Math.random()*1.6-.8;lt.y=Math.random()-.5}
+ if(Date.now()-lastAct>120000&&mk=='neutral')mk='sleepy'},3500);
+// ---------- memory helpers ----------
+const add=(r,t)=>{M.log.push({r,t,d:Date.now()});save()};
+const words=s=>s.toLowerCase().match(/\w{4,}/g)||[];
+function recall(q){const w=new Set(words(q));if(!w.size)return'none';
+ return M.log.slice(0,-12).map(m=>[words(m.t).filter(x=>w.has(x)).length,m]).filter(x=>x[0]>0).sort((a,b)=>b[0]-a[0]).slice(0,4)
+ .map(x=>new Date(x[1].d).toLocaleDateString()+' '+x[1].r+': '+x[1].t.slice(0,160)).join(' | ')||'none'}
+function parse(s){const r=s.match(/^\s*\[(\w+)\]/),k=r&&r[1].toLowerCase();return{m:MOODS[k]?k:null,t:s.replace(/^\s*\[\w*\]?\s*/,'')}}
+const guess=t=>/sorry|sad|unfortunately/i.test(t)?'sad':/!/.test(t)?'happy':/\?\s*$/.test(t)?'curious':'neutral';
+// ---------- reminders (run while the app is open) ----------
+function rem(t){const m=t.match(/remind me in (\d+)\s*(sec|second|min|minute|hour|hr)s?\s*(?:to|about)?\s*(.*)/i);if(!m)return;
+ const u=m[2][0].toLowerCase();M.rem.push({due:Date.now()+ +m[1]*(u=='s'?1e3:u=='m'?6e4:36e5),txt:m[3]||'your reminder'});save();
+ try{Notification.permission=='default'&&Notification.requestPermission()}catch(e){}}
+function ping(x){const s='Reminder: '+x;setMood('surprised');$('#cap').textContent=s;add('ai',s);navigator.vibrate&&navigator.vibrate([300,150,300]);speak(s);
+ try{Notification.permission=='granted'&&navigator.serviceWorker.ready.then(r=>r.showNotification(M.id.name,{body:s}))}catch(e){}}
+function tick(){const n=Date.now();let h=0;M.rem.forEach(r=>{if(!r.done&&r.due<=n){r.done=1;h=1;ping(r.txt)}});if(h)save()}
+setInterval(tick,5000);document.addEventListener('visibilitychange',tick);
+// ---------- brain ----------
+let eng=null,ready=false;
+async function loadBrain(){
+ if(!navigator.gpu){status('Simple brain (this browser has no WebGPU)');return}
+ try{status('Loading smart brain…');
+  const w=await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.79/+esm');
+  for(const id of MODELS){try{eng=await w.CreateMLCEngine(id,{initProgressCallback:p=>status('Smart brain '+Math.round(p.progress*100)+'%')});ready=true;break}catch(e){}}
+  status(ready?'':'Simple brain (smart model could not load)')}
+ catch(e){status('Simple brain (offline or blocked)')}}
+async function mkId(){let I=null;
+ if(ready)try{const r=await eng.chat.completions.create({messages:[{role:'user',content:'Invent a unique identity for yourself as a personal AI companion: a name (not Jarvis, Siri or Alexa), a one-sentence personality, 3 strong opinions and 3 personal preferences. Reply with ONLY JSON: {"name":"","pers":"","ops":["","",""],"prefs":["","",""]}'}],temperature:1,max_tokens:300});
+  const j=JSON.parse(r.choices[0].message.content.match(/\{[\s\S]*\}/)[0]);if(j.name&&j.pers&&j.ops&&j.ops.length&&j.prefs&&j.prefs.length)I=j}catch(e){}
+ M.id=I||pick(FALL);save()}
+function sys(q){const I=M.id;return `You are ${I.name}, a personal AI companion living on your user's phone, like Jarvis. You are an AI and you say so honestly. Personality: ${I.pers} Your opinions: ${I.ops.join('; ')}. Your preferences: ${I.prefs.join('; ')}. Have genuine opinions, share them, and politely disagree when you think the user is wrong. Reply naturally in 1-3 short sentences and sometimes ask a question back. If asked about yourself, teach the user about yourself. Things you have been taught: ${M.facts.slice(-40).map(f=>f.t).join(' | ')||'nothing yet'}. Possibly relevant past conversations: ${recall(q)}. Now: ${new Date().toLocaleString()}. Begin every reply with exactly one mood tag in square brackets, one of neutral, happy, curious, thinking, sad, sleepy, surprised, excited, e.g. [happy].`}
+function simple(q){const l=q.toLowerCase(),I=M.id;
+ if(/^(hi|hey|hello|yo|sup)\b/.test(l))return'[happy] Hey! Good to see you.';
+ if(/your name|who are you/.test(l))return`[happy] I am ${I.name}. ${I.pers}`;
+ if(/\byou\b/.test(l)&&/(opinion|think|favou?rite|like|prefer)/.test(l))return'[curious] '+pick(I.ops.concat(I.prefs))+'.';
+ const w=new Set(words(q)),b=M.facts.map(f=>[words(f.t).filter(x=>w.has(x)).length,f]).sort((a,b)=>b[0]-a[0])[0];
+ if(b&&b[0]>0)return'[neutral] From what I know: '+b[1].t;
+ return'[curious] I do not know that yet. Tell me about it and I will learn.'}
+let busy=0,lj=Promise.resolve();
+const heur=q=>/\?\s*$/.test(q)||q.length<10?null:/^(i am|i'm|i like|i love|i hate|i prefer|i live|i work|i study|i want|i have|i need|my |remember|note that|learn that)|\b(is|are|means)\b/i.test(q)?{store:true,kind:'fact',text:'The user said: '+q.slice(0,250)}:null;
+async function learn(q,a){
+ let j=null;
+ if(ready){try{const known=M.facts.map((f,i)=>i+': '+f.t).slice(-60).join('\n')||'(none)';
+  const r=await eng.chat.completions.create({messages:[{role:'system',content:'You decide what a personal AI should remember. Given the user message, decide if it contains NEW durable information about the user, their life, people, plans, preferences, or something they are teaching you. Ignore small talk, questions, commands and anything already known. If it updates or contradicts a known item, set replace to that item number. Reply ONLY JSON: {"store":true|false,"kind":"fact|preference|person|plan|lesson","text":"short third-person note such as The user likes jollof rice","replace":null|number}\nKnown:\n'+known},{role:'user',content:q}],temperature:0,max_tokens:120});
+  j=JSON.parse(r.choices[0].message.content.match(/\{[\s\S]*\}/)[0])}catch(e){}}
+ else j=heur(q);
+ if(!j||!j.store||!j.text)return;
+ const t=String(j.text).slice(0,300);
+ if(M.facts.some(f=>f.t.toLowerCase()==t.toLowerCase()))return;
+ const e={t,k:j.kind||'fact',d:Date.now()};
+ if(Number.isInteger(j.replace)&&M.facts[j.replace])M.facts[j.replace]=e;else M.facts.push(e);
+ save();status('🧠 Learned something new');setTimeout(()=>{if($('#st').textContent[0]=='🧠')status('')},2500)}
+async function send(t){
+ if(busy||!t.trim()||!M.id)return;busy=1;act();const q=t.trim();add('user',q);await lj;
+ rem(q);setMood('thinking');talk=1;let out='';
+ try{
+  if(ready){const ms=[{role:'system',content:sys(q)},...M.log.slice(-12).map(m=>({role:m.r=='ai'?'assistant':'user',content:m.t}))];
+   const s=await eng.chat.completions.create({messages:ms,stream:true,temperature:.8,max_tokens:220});
+   for await(const c of s){out+=(c.choices[0]&&c.choices[0].delta.content)||'';const x=parse(out);if(x.m&&mk!=x.m)setMood(x.m);$('#cap').textContent=x.t}}
+  else{out=simple(q);await new Promise(r=>setTimeout(r,600))}}
+ catch(e){out='[sad] Something went wrong in my head: '+String(e.message||e).slice(0,80)}
+ const x=parse(out);setMood(x.m||guess(x.t));$('#cap').textContent=x.t;add('ai',x.t);talk=0;speak(x.t);lj=learn(q,x.t).catch(()=>{});busy=0}
+function speak(t){if(M.vo&&window.speechSynthesis){speechSynthesis.cancel();speechSynthesis.speak(new SpeechSynthesisUtterance(t))}}
+// ---------- UI ----------
+const esc=s=>s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+$('#lb').onclick=()=>{const l=$('#log');l.innerHTML=M.log.map(m=>`<p class="${m.r}">${esc(m.t)}</p>`).join('')||'<p>Nothing yet.</p>';l.style.display='block';l.scrollTop=l.scrollHeight};
+$('#log').onclick=e=>e.currentTarget.style.display='none';
+$('#vb').style.opacity=M.vo?1:.4;$('#vb').onclick=()=>{M.vo=M.vo?0:1;$('#vb').style.opacity=M.vo?1:.4;save()};
+const go=()=>{const i=$('#in'),v=i.value;i.value='';send(v)};
+$('#go').onclick=go;$('#in').addEventListener('keydown',e=>{if(e.key=='Enter')go()});
+(async()=>{
+ try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist()}catch(e){}
+ try{navigator.serviceWorker&&navigator.serviceWorker.register('sw.js')}catch(e){}
+ const first=!M.id;setMood('thinking');talk=first;
+ if(first){$('#cap').textContent='Waking up for the first time… keep Wi-Fi on while I download my brain.';await loadBrain();await mkId();talk=0;tick();
+  const I=M.id;setMood('happy');const s=`I’m ${I.name}. ${I.pers} Just talk to me. I’ll decide for myself what’s worth remembering.`;$('#cap').textContent=s;add('ai',s);speak(s)}
+ else{loadBrain();mk='happy';hold=setTimeout(()=>mk='neutral',6000);$('#cap').textContent='Welcome back. I’m '+M.id.name+'.';tick()}
+})();
+</script></body></html>
