@@ -74,7 +74,7 @@ function ping(x){const s='Reminder: '+x;setMood('surprised');$('#cap').textConte
  try{Notification.permission=='granted'&&navigator.serviceWorker.ready.then(r=>r.showNotification(M.id.name,{body:s}))}catch(e){}}
 function tick(){const n=Date.now();let h=0;M.rem.forEach(r=>{if(!r.done&&r.due<=n){r.done=1;h=1;ping(r.txt)}});if(h)save()}
 setInterval(tick,5000);document.addEventListener('visibilitychange',tick);
-const CPU_MODEL='onnx-community/Qwen2.5-0.5B-Instruct';
+const CPU_MODEL='onnx-community/SmolLM2-360M-Instruct';
 let eng=null,ready=false,cpu=false;
 async function loadBrain(){
  try{status('Loading brain…');await loadWasm();status('')}
